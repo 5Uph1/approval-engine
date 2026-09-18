@@ -1,0 +1,187 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ApproverType {
+  ROLE
+  USER
+}
+
+enum RequestStatus {
+  Draft
+  Submitted
+  WaitingApproval
+  Approved
+  Rejected
+  Completed
+}
+
+// User
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  name         String
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  userRoles          UserRole[]
+  workflowsCreated   Workflow[]             @relation("WorkflowCreatedBy")
+  workflowsUpdated   Workflow[]             @relation("WorkflowUpdatedBy")
+  stageApprovers     WorkflowStageApprover[]
+  requests           Request[]
+  requestHistories   RequestHistory[]
+
+  @@map("users")
+}
+
+model Role {
+  id   String @id @default(uuid()) @db.Uuid
+  name String @unique
+
+  userRoles      UserRole[]
+  stageApprovers WorkflowStageApprover[]
+
+  @@map("roles")
+}
+
+model UserRole {
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @map("user_id") @db.Uuid
+  roleId String @map("role_id") @db.Uuid
+
+  user User @relation(fields: [userId], references: [id])
+  role Role @relation(fields: [roleId], references: [id])
+
+  @@unique([userId, roleId])
+  @@map("user_roles")
+}
+
+// Workflow
+model Workflow {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String
+  description String
+  isActive    Boolean  @default(true) @map("is_active")
+  createdBy   String   @map("created_by") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedBy   String   @map("updated_by") @db.Uuid
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  creator User @relation("WorkflowCreatedBy", fields: [createdBy], references: [id])
+  updater User @relation("WorkflowUpdatedBy", fields: [updatedBy], references: [id])
+
+  stages   WorkflowStage[]
+  requests Request[]
+
+  @@map("workflows")
+}
+
+model WorkflowStage {
+  id            String  @id @default(uuid()) @db.Uuid
+  workflowId    String  @map("workflow_id") @db.Uuid
+  name          String
+  sequenceOrder Int     @map("sequence_order")
+  isFinal       Boolean @default(false) @map("is_final")
+
+  workflow Workflow @relation(fields: [workflowId], references: [id])
+
+  action          WorkflowAction?
+  transitionsFrom WorkflowTransition[]    @relation("TransitionFrom")
+  transitionsTo   WorkflowTransition[]    @relation("TransitionTo")
+  approvers       WorkflowStageApprover[]
+  requests        Request[]
+  histories       RequestHistory[]
+
+  @@unique([workflowId, sequenceOrder])
+  @@map("workflow_stages")
+}
+
+model WorkflowAction {
+  id      String @id @default(uuid()) @db.Uuid
+  stageId String @unique @map("stage_id") @db.Uuid
+  code    String @unique
+  label   String
+
+  stage WorkflowStage @relation(fields: [stageId], references: [id])
+
+  transitions WorkflowTransition[]
+  histories   RequestHistory[]
+
+  @@map("workflow_actions")
+}
+
+model WorkflowTransition {
+  id          String  @id @default(uuid()) @db.Uuid
+  fromStageId String  @map("from_stage_id") @db.Uuid
+  actionId    String  @map("action_id") @db.Uuid
+  toStageId   String? @map("to_stage_id") @db.Uuid
+
+  fromStage WorkflowStage  @relation("TransitionFrom", fields: [fromStageId], references: [id])
+  action    WorkflowAction @relation(fields: [actionId], references: [id])
+  toStage   WorkflowStage? @relation("TransitionTo", fields: [toStageId], references: [id])
+
+  @@unique([fromStageId, actionId])
+  @@map("workflow_transitions")
+}
+
+model WorkflowStageApprover {
+  id           String       @id @default(uuid()) @db.Uuid
+  stageId      String       @map("stage_id") @db.Uuid
+  approverType ApproverType @map("approver_type")
+  roleId       String?      @map("role_id") @db.Uuid
+  userId       String?      @map("user_id") @db.Uuid
+
+  stage WorkflowStage @relation(fields: [stageId], references: [id])
+  role  Role?         @relation(fields: [roleId], references: [id])
+  user  User?         @relation(fields: [userId], references: [id])
+
+  @@map("workflow_stage_approvers")
+}
+
+// Request & History
+model Request {
+  id             String        @id @default(uuid()) @db.Uuid
+  workflowId     String        @map("workflow_id") @db.Uuid
+  requestNumber  String        @unique @map("request_number")
+  requesterId    String        @map("requester_id") @db.Uuid
+  currentStageId String        @map("current_stage_id") @db.Uuid
+  status         RequestStatus @default(Draft)
+  data           Json          @db.JsonB
+  version        Int           @default(1)
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  workflow     Workflow      @relation(fields: [workflowId], references: [id])
+  requester    User          @relation(fields: [requesterId], references: [id])
+  currentStage WorkflowStage @relation(fields: [currentStageId], references: [id])
+
+  histories RequestHistory[]
+
+  @@index([workflowId])
+  @@index([currentStageId])
+  @@index([requesterId])
+  @@map("requests")
+}
+
+model RequestHistory {
+  id        String   @id @default(uuid()) @db.Uuid
+  requestId String   @map("request_id") @db.Uuid
+  stageId   String   @map("stage_id") @db.Uuid
+  actionId  String?  @map("action_id") @db.Uuid
+  actorId   String   @map("actor_id") @db.Uuid
+  comment   String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  request Request         @relation(fields: [requestId], references: [id])
+  stage   WorkflowStage   @relation(fields: [stageId], references: [id])
+  action  WorkflowAction? @relation(fields: [actionId], references: [id])
+  actor   User            @relation(fields: [actorId], references: [id])
+
+  @@index([requestId])
+  @@map("request_histories")
+}
