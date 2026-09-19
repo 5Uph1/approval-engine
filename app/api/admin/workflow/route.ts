@@ -42,7 +42,6 @@ export async function GET(req: NextRequest) {
     const { q, isActive, page, limit } = query.data;
 
     const where: Prisma.WorkflowWhereInput = {
-      ...(q ? { name: { contains: q, mode: "insensitive" } } : {}),
       ...(isActive !== undefined ? { isActive } : {}),
     };
 
@@ -64,8 +63,8 @@ export async function GET(req: NextRequest) {
       data: items,
       meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
     });
-  } catch (e) {
-    return handleErrors(e);
+  } catch (error) {
+    return handleErrors(error);
   }
 }
 

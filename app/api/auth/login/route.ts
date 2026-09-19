@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
 
   if (!user) {
     return NextResponse.json(
-      { messge: "Email atau password salah" },
+      { message: "Email atau password salah" },
       { status: 401 },
     );
   }
@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
 
   if (!passwordHash) {
     return NextResponse.json(
-      { messge: "Email atau password salah" },
+      { message: "Email atau password salah" },
       { status: 401 },
     );
   }
