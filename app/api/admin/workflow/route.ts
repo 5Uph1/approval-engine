@@ -39,7 +39,7 @@ export async function GET(req: NextRequest) {
       Object.fromEntries(req.nextUrl.searchParams),
     );
     if (!query.success) return validationError(query.error);
-    const { q, isActive, page, limit } = query.data;
+    const { isActive, page, limit } = query.data;
 
     const where: Prisma.WorkflowWhereInput = {
       ...(isActive !== undefined ? { isActive } : {}),

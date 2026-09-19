@@ -103,9 +103,10 @@ model WorkflowStage {
 
 model WorkflowAction {
   id      String @id @default(uuid()) @db.Uuid
-  stageId String @unique @map("stage_id") @db.Uuid
-  code    String @unique
+  stageId String @map("stage_id") @db.Uuid
+  code    String 
   label   String
+  isReject Boolean @default(false) @map("is_reject")
 
   stage WorkflowStage @relation(fields: [stageId], references: [id])
 

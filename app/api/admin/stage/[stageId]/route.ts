@@ -35,13 +35,20 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
 
     const stage = await prisma.workflowStage.findUnique({
       where: { id: stageId },
-      select: { workflowId: true, _count: { select: { actions: true } } },
+      select: {
+        workflowId: true,
+        _count: {
+          select: {
+            action: true,
+          },
+        },
+      },
     });
     if (!stage) throw new HttpError(404, "Stage tidak ditemukan");
 
     await assertStructureEditable(stage.workflowId);
 
-    if (isFinal === true && stage._count.actions > 0) {
+    if (isFinal === true && stage._count.action > 0) {
       throw new HttpError(
         422,
         "Stage final tidak boleh punya action; hapus action-nya dulu",

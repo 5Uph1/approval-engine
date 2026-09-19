@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireAuth } from "@/lib/api-auth";
+import { Authenticate } from "@/lib/api-auth";
 import { handleErrors, HttpError, parseId } from "@/lib/http";
 import { validateWorkflow } from "@/lib/workflow-validation";
 
@@ -8,7 +8,7 @@ type Ctx = { params: Promise<{ id: string }> };
 
 /** GET /api/admin/workflows/:id/validate */
 export async function GET(req: NextRequest, { params }: Ctx) {
-  const auth = await requireAuth(req, ["Admin"]);
+  const auth = await Authenticate(req, ["Admin"]);
   if (auth.error) return auth.error;
 
   try {

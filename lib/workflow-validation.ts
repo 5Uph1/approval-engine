@@ -19,7 +19,11 @@ export async function validateWorkflow(
     where: { workflowId },
     orderBy: { sequenceOrder: "asc" },
     include: {
-      actions: { include: { transitions: true } },
+      action: {
+        include: {
+          transitions: true,
+        },
+      },
       approvers: true,
     },
   });
@@ -72,7 +76,7 @@ export async function validateWorkflow(
     }
 
     if (stage.isFinal) {
-      if (stage.actions.length > 0) {
+      if (stage.action.length > 0) {
         issues.push({
           code: "FINAL_HAS_ACTIONS",
           message: `${label} adalah stage final dan tidak boleh punya action`,
@@ -91,7 +95,7 @@ export async function validateWorkflow(
     }
 
     let hasForwardAction = false;
-    for (const action of stage.actions) {
+    for (const action of stage.action) {
       const transition = action.transitions[0];
 
       if (!transition) {
@@ -137,7 +141,7 @@ export async function validateWorkflow(
   const queue = [stages[0]];
   while (queue.length > 0) {
     const current = queue.shift()!;
-    for (const action of current.actions) {
+    for (const action of current.action) {
       const toId = action.transitions[0]?.toStageId;
       const next = toId ? byId.get(toId) : undefined;
       if (next && !reachable.has(next.id)) {
