@@ -1,4 +1,3 @@
-import { JWTPayload } from "jose";
 import { NextRequest, NextResponse } from "next/server";
 import { JwtPayload, verifyToken } from "./auth";
 
@@ -17,10 +16,10 @@ export async function getAuthUser(
 }
 
 type AuthResult =
-  | { user: JWTPayload; error?: undefined }
+  | { user: JwtPayload; error?: undefined }
   | { error: NextResponse; user?: undefined };
 
-export async function requireAuth(
+export async function Authenticate(
   req: NextRequest,
   allowedRoles?: string[],
 ): Promise<AuthResult> {

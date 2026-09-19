@@ -147,7 +147,7 @@ model WorkflowStageApprover {
 model Request {
   id             String        @id @default(uuid()) @db.Uuid
   workflowId     String        @map("workflow_id") @db.Uuid
-  requestNumber  String        @unique @map("request_number")
+  requestNumber  String?       @unique @map("request_number")
   requesterId    String        @map("requester_id") @db.Uuid
   currentStageId String        @map("current_stage_id") @db.Uuid
   status         RequestStatus @default(Draft)
