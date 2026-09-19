@@ -21,8 +21,9 @@ type Ctx = { params: Promise<{ stageId: string }> };
 const createSchema = z.object({
   code: actionCodeSchema,
   label: z.string().trim().min(1, "Label wajib diisi").max(100),
-  // Stage tujuan. null = Reject (request berakhir sebagai Rejected)
-  toStageId: z.string().uuid().nullable(),
+  isReject: z.boolean().default(false),
+  // WAJIB diisi — reject pun harus menunjuk stage final "Rejected", bukan null
+  toStageId: z.string().uuid("toStageId wajib diisi dan valid"),
 });
 
 /** POST /api/admin/stages/:stageId/actions — membuat action + transition sekaligus */
@@ -35,7 +36,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
 
     const body = createSchema.safeParse(await req.json().catch(() => null));
     if (!body.success) return validationError(body.error);
-    const { code, label, toStageId } = body.data;
+    const { code, label, isReject, toStageId } = body.data; // <-- isReject ditambahkan di sini
 
     const stage = await prisma.workflowStage.findUnique({
       where: { id: stageId },
@@ -48,7 +49,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     if (stage.isFinal) {
       throw new HttpError(422, "Stage final tidak boleh memiliki action");
     }
-    if (toStageId) await assertValidTarget(stage, toStageId);
+    await assertValidTarget(stage, toStageId);
 
     try {
       const action = await prisma.workflowAction.create({
@@ -56,6 +57,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
           stageId,
           code,
           label,
+          isReject,
           transitions: { create: { fromStageId: stageId, toStageId } },
         },
         include: { transitions: { select: { toStageId: true } } },

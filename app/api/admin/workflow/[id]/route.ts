@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { Authenticate } from "@/lib/api-auth";
 import { handleErrors, HttpError, parseId, validationError } from "@/lib/http";
 import { validateWorkflow } from "@/lib/workflow-validation";
+import { countInFlight } from "@/lib/workflow-admin";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -23,26 +24,35 @@ export async function GET(req: NextRequest, { params }: Ctx) {
   try {
     const id = parseId((await params).id);
 
-    const workflow = await prisma.workflow.findUnique({
-      where: { id },
-      include: {
-        stages: {
-          orderBy: { sequenceOrder: "asc" },
-          include: {
-            actions: {
-              orderBy: { code: "asc" },
-              include: { transitions: true },
-            },
-            approvers: {
-              include: {
-                role: { select: { id: true, name: true } },
-                user: { select: { id: true, name: true, email: true } },
+    const [workflow, activeRequestCount] = await Promise.all([
+      prisma.workflow.findUnique({
+        where: { id },
+        include: {
+          stages: {
+            orderBy: { sequenceOrder: "asc" },
+            include: {
+              action: {
+                orderBy: { code: "asc" },
+                include: {
+                  transitions: true,
+                },
+              },
+              approvers: {
+                include: {
+                  role: { select: { id: true, name: true } },
+                  user: { select: { id: true, name: true, email: true } },
+                },
               },
             },
           },
         },
-      },
-    });
+      }),
+      // Pakai fungsi yang sama persis dengan yang dipakai assertStructureEditable
+      // & route approver, supaya angka ini selalu konsisten dengan error 409
+      // yang muncul saat user mencoba mengubah struktur.
+      countInFlight(id),
+    ]);
+
     if (!workflow) throw new HttpError(404, "Workflow tidak ditemukan");
 
     return NextResponse.json({
@@ -53,16 +63,18 @@ export async function GET(req: NextRequest, { params }: Ctx) {
         isActive: workflow.isActive,
         createdAt: workflow.createdAt,
         updatedAt: workflow.updatedAt,
+        activeRequestCount,
         stages: workflow.stages.map((s) => ({
           id: s.id,
           name: s.name,
           sequenceOrder: s.sequenceOrder,
           isFinal: s.isFinal,
-          actions: s.actions.map((a) => ({
+          actions: s.action.map((a) => ({
             id: a.id,
             code: a.code,
             label: a.label,
-            toStageId: a.transitions[0]?.toStageId ?? null, // null = Reject
+            isReject: a.isReject,
+            toStageId: a.transitions[0]?.toStageId ?? null,
           })),
           approvers: s.approvers.map((ap) => ({
             id: ap.id,

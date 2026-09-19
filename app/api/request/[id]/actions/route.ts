@@ -30,13 +30,19 @@ export async function POST(req: NextRequest, { params }: Ctx) {
       if (!request) throw new HttpError(404, "Request tidak ditemukan");
 
       if (request.status !== "WaitingApproval") {
-        throw new HttpError(409, "Request tidak ditemukan");
+        throw new HttpError(
+          409,
+          "Request tidak dalam status menunggu persetujuan",
+        );
       }
       if (version !== undefined && version !== request.version) {
-        throw new HttpError(409, "Request sudah berubah, muat ulang lalu");
+        throw new HttpError(
+          409,
+          "Request sudah berubah, muat ulang lalu coba lagi",
+        );
       }
 
-      if (request.requesterId !== userId) {
+      if (request.requesterId === userId) {
         throw new HttpError(403, "Tidak boleh memproses request sendiri");
       }
       if (!(await isStageApprover(userId, request.currentStageId))) {
@@ -61,24 +67,26 @@ export async function POST(req: NextRequest, { params }: Ctx) {
         },
         include: { toStage: { select: { id: true, isFinal: true } } },
       });
-      if (!transition) {
+
+      // toStage WAJIB ada — reject pun harus menunjuk ke stage final "Rejected",
+      // bukan null. Status ditentukan dari action.isReject, bukan dari toStageId.
+      if (!transition || !transition.toStage) {
         throw new HttpError(
           422,
-          "Transition untuk action ini belum dikonfigurasi",
+          "Transition untuk action ini belum dikonfigurasi dengan benar (toStage kosong)",
         );
       }
 
-      const isRejected = transition.toStage === null;
-      const nextStageId = transition.toStage?.id ?? request.currentStageId;
-      const nextStatus = isRejected
-        ? ("Rejected" as const)
-        : transition.toStage!.isFinal
-          ? ("Approved" as const)
-          : ("WaitingApproval" as const);
-
-      if (isRejected && !comment) {
+      if (action.isReject && !comment) {
         throw new HttpError(400, "Komentar wajib diisi saat menolak request");
       }
+
+      const nextStageId = transition.toStage.id;
+      const nextStatus = action.isReject
+        ? ("Rejected" as const)
+        : transition.toStage.isFinal
+          ? ("Approved" as const)
+          : ("WaitingApproval" as const);
 
       const updated = await tx.request.updateMany({
         where: { id, status: "WaitingApproval", version: request.version },

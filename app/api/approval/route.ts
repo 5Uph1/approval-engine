@@ -18,13 +18,28 @@ const queueSelect = {
   version: true,
   createdAt: true,
   updatedAt: true,
-  workflow: { select: { id: true, name: true } },
-  requester: { select: { id: true, name: true } },
+  workflow: {
+    select: {
+      id: true,
+      name: true,
+    },
+  },
+  requester: {
+    select: {
+      id: true,
+      name: true,
+    },
+  },
   currentStage: {
     select: {
       id: true,
       name: true,
-      actions: { select: { code: true, label: true } },
+      action: {
+        select: {
+          code: true,
+          label: true,
+        },
+      },
     },
   },
 } satisfies Prisma.RequestSelect;

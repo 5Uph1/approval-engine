@@ -18,24 +18,34 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Plus,
   Pencil,
   Trash2,
   ChevronLeft,
   ChevronRight,
   Loader2,
+  LogOut,
 } from "lucide-react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 
 interface WorkflowItem {
   id: string;
   name: string;
   description?: string;
   isActive: boolean;
-  createdBy?: {
-    name: string;
-    email: string;
-  };
 }
 
 interface PaginationMeta {
@@ -46,6 +56,7 @@ interface PaginationMeta {
 }
 
 export default function AdminWorkflowPage() {
+  const router = useRouter();
   const [workflows, setWorkflows] = useState<WorkflowItem[]>([]);
   const [meta, setMeta] = useState<PaginationMeta>({
     page: 1,
@@ -56,6 +67,10 @@ export default function AdminWorkflowPage() {
 
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  const [selectedDeleteId, setSelectedDeleteId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<boolean>(false);
+  const [loggingOut, setLoggingOut] = useState<boolean>(false);
 
   const fetchWorkflows = async (pageNumber: number) => {
     setLoading(true);
@@ -89,6 +104,52 @@ export default function AdminWorkflowPage() {
     fetchWorkflows(meta.page);
   }, [meta.page]);
 
+  const handleDelete = async () => {
+    if (!selectedDeleteId) return;
+
+    setDeleting(true);
+    try {
+      const response = await fetch(`/api/admin/workflow/${selectedDeleteId}`, {
+        method: "DELETE",
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          result.error?.message || result.message || "Gagal menghapus workflow",
+        );
+      }
+
+      toast.success("Workflow berhasil dihapus!");
+      setSelectedDeleteId(null);
+
+      if (workflows.length === 1 && meta.page > 1) {
+        setMeta((prev) => ({ ...prev, page: prev.page - 1 }));
+      } else {
+        fetchWorkflows(meta.page);
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Terjadi kesalahan saat menghapus data");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    setLoggingOut(true);
+    try {
+      // Sesuaikan endpoint API logout dengan yang ada di backend/auth Anda
+      await fetch("/api/auth/logout", { method: "POST" });
+      toast.success("Berhasil keluar dari akun.");
+      router.push("/auth/login");
+    } catch (err: any) {
+      toast.error("Gagal melakukan logout.");
+    } finally {
+      setLoggingOut(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-50/50 p-6 md:p-10 dark:bg-gray-950">
       <div className="mx-auto max-w-7xl space-y-6">
@@ -102,10 +163,30 @@ export default function AdminWorkflowPage() {
               Kelola dan atur alur kerja otomatisasi sistem di sini.
             </p>
           </div>
-          <Button className="flex items-center gap-2 cursor-pointer">
-            <Plus className="h-4 w-4" />
-            <span>Tambah Workflow</span>
-          </Button>
+
+          {/* Action Buttons */}
+          <div className="flex items-center gap-2">
+            <Link href={`/admin/configuration/add-workflow`}>
+              <Button className="flex items-center gap-2 cursor-pointer">
+                <Plus className="h-4 w-4" />
+                <span>Tambah Workflow</span>
+              </Button>
+            </Link>
+
+            <Button
+              variant="outline"
+              onClick={handleLogout}
+              disabled={loggingOut}
+              className="flex items-center gap-2 cursor-pointer text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-900 dark:hover:bg-red-950/50"
+            >
+              {loggingOut ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <LogOut className="h-4 w-4" />
+              )}
+              <span>Logout</span>
+            </Button>
+          </div>
         </div>
 
         {/* Content Card */}
@@ -135,15 +216,13 @@ export default function AdminWorkflowPage() {
                     <TableHead className="w-[220px]">Nama Workflow</TableHead>
                     <TableHead>Deskripsi</TableHead>
                     <TableHead className="w-[140px]">Status</TableHead>
-                    <TableHead className="w-[180px]">Dibuat Oleh</TableHead>
                     <TableHead className="w-[120px] text-right">Aksi</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {loading ? (
-                    // Indicator Loading
                     <TableRow>
-                      <TableCell colSpan={5} className="h-32 text-center">
+                      <TableCell colSpan={4} className="h-32 text-center">
                         <div className="flex items-center justify-center gap-2 text-muted-foreground">
                           <Loader2 className="h-5 w-5 animate-spin" />
                           <span>Memuat data workflow...</span>
@@ -151,10 +230,9 @@ export default function AdminWorkflowPage() {
                       </TableCell>
                     </TableRow>
                   ) : workflows.length === 0 ? (
-                    // Jika data kosong
                     <TableRow>
                       <TableCell
-                        colSpan={5}
+                        colSpan={4}
                         className="h-24 text-center text-muted-foreground"
                       >
                         Belum ada data workflow.
@@ -189,11 +267,6 @@ export default function AdminWorkflowPage() {
                           )}
                         </TableCell>
 
-                        {/* Dibuat Oleh */}
-                        <TableCell className="text-sm text-gray-600 dark:text-gray-300">
-                          {item.createdBy?.name || "-"}
-                        </TableCell>
-
                         {/* Action */}
                         <TableCell className="text-right">
                           <div className="flex items-center justify-end gap-2">
@@ -203,13 +276,16 @@ export default function AdminWorkflowPage() {
                               className="h-8 w-8 text-blue-600 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/50 cursor-pointer"
                               title="Edit Workflow"
                             >
-                              <Pencil className="h-4 w-4" />
+                              <Link href={`/admin/configuration/${item.id}`}>
+                                <Pencil className="h-4 w-4" />
+                              </Link>
                             </Button>
                             <Button
                               variant="ghost"
                               size="icon"
                               className="h-8 w-8 text-red-600 hover:bg-red-50 hover:text-red-700 dark:hover:bg-red-950/50 cursor-pointer"
                               title="Hapus Workflow"
+                              onClick={() => setSelectedDeleteId(item.id)}
                             >
                               <Trash2 className="h-4 w-4" />
                             </Button>
@@ -225,7 +301,7 @@ export default function AdminWorkflowPage() {
             {/* Pagination Footer */}
             <div className="flex items-center justify-between pt-4 text-xs text-muted-foreground">
               <span>
-                Menampilkan {meta.page} dari {meta.totalPages || 1} data
+                Menampilkan {meta.page} dari {meta.totalPages || 1} halaman
               </span>
               <div className="flex items-center gap-2">
                 <Button
@@ -257,6 +333,42 @@ export default function AdminWorkflowPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Modal Dialog Konfirmasi Hapus */}
+      <AlertDialog
+        open={!!selectedDeleteId}
+        onOpenChange={(open: boolean) => !open && setSelectedDeleteId(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Apakah Anda yakin?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Tindakan ini tidak dapat dibatalkan. Workflow ini akan dihapus
+              permanen dari sistem.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Batal</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e: React.MouseEvent) => {
+                e.preventDefault();
+                handleDelete();
+              }}
+              disabled={deleting}
+              className="bg-red-600 hover:bg-red-700 text-white dark:bg-red-900 dark:hover:bg-red-800 cursor-pointer"
+            >
+              {deleting ? (
+                <div className="flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span>Menghapus...</span>
+                </div>
+              ) : (
+                "Hapus Data"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

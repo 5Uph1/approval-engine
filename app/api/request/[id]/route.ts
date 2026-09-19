@@ -1,7 +1,7 @@
 import { Authenticate } from "@/lib/api-auth";
 import { handleErrors, HttpError, parseId, validationError } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
-import { canViewRequest } from "@/lib/workflow";
+import { canViewRequest, isStageApprover } from "@/lib/workflow";
 import { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import z from "zod";
@@ -43,7 +43,36 @@ export async function GET(req: NextRequest, { params }: Ctx) {
     const viewRequest = await canViewRequest(auth.user, request);
     if (!viewRequest) throw new HttpError(403, "Forbidden");
 
-    return NextResponse.json({ request });
+    const isRequester = request.requesterId === auth.user.sub;
+    const canSubmit = isRequester && request.status === "Draft";
+    const canAct =
+      request.status === "WaitingApproval" &&
+      !isRequester &&
+      (await isStageApprover(auth.user.sub, request.currentStageId));
+
+    const actions = canAct
+      ? (
+          await prisma.workflowAction.findMany({
+            where: { stageId: request.currentStageId },
+            orderBy: { code: "asc" },
+            select: {
+              code: true,
+              label: true,
+              isReject: true, // <-- WAJIB di-select, tadinya hilang
+            },
+          })
+        ).map((a) => ({
+          code: a.code,
+          label: a.label,
+          isReject: a.isReject,
+        }))
+      : [];
+
+    return NextResponse.json({
+      request,
+      permissions: { canEdit: canSubmit, canSubmit, canAct },
+      actions,
+    });
   } catch (error) {
     return handleErrors(error);
   }
