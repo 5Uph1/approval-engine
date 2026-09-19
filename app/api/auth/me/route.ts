@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireAuth } from "@/lib/api-auth";
+import { Authenticate } from "@/lib/api-auth";
 
 export async function GET(req: NextRequest) {
-  const auth = await requireAuth(req);
+  const auth = await Authenticate(req);
   if (auth.error) return auth.error;
 
   const user = await prisma.user.findUnique({
