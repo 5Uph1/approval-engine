@@ -90,7 +90,7 @@ model WorkflowStage {
 
   workflow Workflow @relation(fields: [workflowId], references: [id])
 
-  action          WorkflowAction?
+  action          WorkflowAction[]
   transitionsFrom WorkflowTransition[]    @relation("TransitionFrom")
   transitionsTo   WorkflowTransition[]    @relation("TransitionTo")
   approvers       WorkflowStageApprover[]
@@ -112,6 +112,7 @@ model WorkflowAction {
   transitions WorkflowTransition[]
   histories   RequestHistory[]
 
+  @@unique([stageId, code])
   @@map("workflow_actions")
 }
 
