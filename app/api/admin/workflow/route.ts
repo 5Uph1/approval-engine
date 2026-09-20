@@ -6,12 +6,11 @@ import { Authenticate } from "@/lib/api-auth";
 import { handleErrors, validationError } from "@/lib/http";
 
 const listSchema = z.object({
-  q: z.string().trim().min(1).optional(),
   isActive: z
     .enum(["true", "false"])
     .transform((v) => v === "true")
     .optional(),
-  page: z.coerce.number().int().min(1).default(1),
+  page: z.coerce.number().int().min(1).max(10000).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(10),
 });
 
@@ -29,7 +28,7 @@ const workflowSelect = {
   updatedAt: true,
 } satisfies Prisma.WorkflowSelect;
 
-/** GET /api/admin/workflows?q=&isActive=&page=&limit= */
+// GET /api/admin/workflow?isActive=&page=&limit= — daftar SEMUA workflow (khusus Admin)
 export async function GET(req: NextRequest) {
   const auth = await Authenticate(req, ["Admin"]);
   if (auth.error) return auth.error;
@@ -63,12 +62,12 @@ export async function GET(req: NextRequest) {
       data: items,
       meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
     });
-  } catch (error) {
-    return handleErrors(error);
+  } catch (e) {
+    return handleErrors(e);
   }
 }
 
-/** POST /api/admin/workflows — dibuat NONAKTIF; aktifkan setelah struktur valid */
+// POST /api/admin/workflow — dibuat NONAKTIF; aktifkan setelah struktur valid
 export async function POST(req: NextRequest) {
   const auth = await Authenticate(req, ["Admin"]);
   if (auth.error) return auth.error;

@@ -22,12 +22,11 @@ const patchSchema = z
   .object({
     code: actionCodeSchema.optional(),
     label: z.string().trim().min(1).max(100).optional(),
-    // undefined = tidak diubah, null = jadikan Reject, uuid = stage tujuan baru
     toStageId: z.string().uuid().nullable().optional(),
   })
   .refine((v) => Object.keys(v).length > 0, "Minimal satu field harus diisi");
 
-/** PATCH /api/admin/actions/:actionId */
+// PATCH /api/admin/actions/:actionId
 export async function PATCH(req: NextRequest, { params }: Ctx) {
   const auth = await Authenticate(req, ["Admin"]);
   if (auth.error) return auth.error;
@@ -88,7 +87,7 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
   }
 }
 
-/** DELETE /api/admin/actions/:actionId */
+// DELETE /api/admin/actions/:actionId
 export async function DELETE(req: NextRequest, { params }: Ctx) {
   const auth = await Authenticate(req, ["Admin"]);
   if (auth.error) return auth.error;

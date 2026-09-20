@@ -16,6 +16,13 @@ const ROLE_PROTECTED: {
 export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
+  if (pathname === "/") {
+    const user = await getAuthUser(req);
+    return NextResponse.redirect(
+      new URL(user ? "/dashboard" : "/auth/login", req.url),
+    );
+  }
+
   if (PUBLIC_PATHS.includes(pathname)) {
     return NextResponse.next();
   }
@@ -36,5 +43,5 @@ export async function proxy(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/api/:path*"],
+  matcher: ["/api/:path*", "/"],
 };

@@ -20,7 +20,7 @@ const approverSelect = {
   userId: true,
 } as const;
 
-/** POST /api/admin/stages/:stageId/approvers — boleh kapan saja */
+// POST /api/admin/stages/:stageId/approvers — boleh kapan saja
 export async function POST(req: NextRequest, { params }: Ctx) {
   const auth = await Authenticate(req, ["Admin"]);
   if (auth.error) return auth.error;

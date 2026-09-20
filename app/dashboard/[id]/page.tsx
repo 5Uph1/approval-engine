@@ -268,7 +268,7 @@ export default function RequestDetailPage() {
           variant="ghost"
           size="sm"
           className="gap-2"
-          onClick={() => router.back()}
+          onClick={() => router.push("/dashboard")}
         >
           <ArrowLeft className="h-4 w-4" />
           Kembali

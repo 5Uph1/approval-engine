@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { Authenticate } from "@/lib/api-auth";
 import { handleErrors } from "@/lib/http";
 
-/** GET /api/admin/roles — daftar role (untuk memilih approver) */
+// GET /api/admin/roles
 export async function GET(req: NextRequest) {
   const auth = await Authenticate(req, ["Admin"]);
   if (auth.error) return auth.error;

@@ -21,7 +21,7 @@ const patchSchema = z
   })
   .refine((v) => Object.keys(v).length > 0, "Minimal satu field harus diisi");
 
-/** PATCH /api/admin/stages/:stageId */
+// PATCH /api/admin/stages/:stageId
 export async function PATCH(req: NextRequest, { params }: Ctx) {
   const auth = await Authenticate(req, ["Admin"]);
   if (auth.error) return auth.error;
@@ -82,7 +82,7 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
   }
 }
 
-/** DELETE /api/admin/stages/:stageId */
+// DELETE /api/admin/stages/:stageId
 export async function DELETE(req: NextRequest, { params }: Ctx) {
   const auth = await Authenticate(req, ["Admin"]);
   if (auth.error) return auth.error;
