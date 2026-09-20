@@ -91,8 +91,15 @@ export default function AdminWorkflowPage() {
         );
       }
 
-      setWorkflows(result.data);
-      setMeta(result.meta);
+      setWorkflows(result.data ?? []);
+      setMeta(
+        result.meta ?? {
+          page: pageNumber,
+          limit: 10,
+          total: result.data?.length ?? 0,
+          totalPages: 1,
+        },
+      );
     } catch (error: any) {
       setError(error.message || "Terjadi kesalahan koneksi");
     } finally {

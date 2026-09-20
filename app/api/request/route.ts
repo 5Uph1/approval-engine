@@ -1,6 +1,7 @@
 import { Authenticate } from "@/lib/api-auth";
 import { handleErrors, HttpError, validationError } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
+import { validateRequestData } from "@/lib/workflow";
 import { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import z from "zod";
@@ -36,6 +37,7 @@ const requestSummarySelect = {
   currentStage: { select: { id: true, name: true } },
 };
 
+// POST /api/request
 export async function POST(req: NextRequest) {
   const auth = await Authenticate(req);
   if (auth.error) return auth.error;
@@ -53,7 +55,10 @@ export async function POST(req: NextRequest) {
 
     const workflow = await prisma.workflow.findUnique({
       where: { id: workflowId },
-      include: { stages: { orderBy: { sequenceOrder: "asc" }, take: 1 } },
+      include: {
+        stages: { orderBy: { sequenceOrder: "asc" }, take: 1 },
+        fields: { orderBy: { sequenceOrder: "asc" } },
+      },
     });
     if (!workflow || !workflow.isActive) {
       throw new HttpError(404, "Workflow tidak ditemukan atau tidak aktif");
@@ -62,6 +67,33 @@ export async function POST(req: NextRequest) {
     const firstStage = workflow.stages[0];
     if (!firstStage) {
       throw new HttpError(422, "Workflow belum memiliki stage");
+    }
+
+    // "title" adalah field bawaan sistem, selalu wajib, di luar field kustom admin.
+    const errors: { path: string; message: string }[] = [];
+    if (typeof data.title !== "string" || !data.title.trim()) {
+      errors.push({ path: "title", message: "Judul wajib diisi" });
+    }
+
+    // Validasi field kustom yang didefinisikan admin untuk workflow ini.
+    errors.push(
+      ...validateRequestData(
+        workflow.fields.map((f) => ({
+          key: f.key,
+          label: f.label,
+          type: f.type,
+          required: f.isRequired,
+          options: Array.isArray(f.options) ? (f.options as string[]) : null,
+        })),
+        data,
+      ),
+    );
+
+    if (errors.length > 0) {
+      return NextResponse.json(
+        { message: "Validasi gagal", errors },
+        { status: 400 },
+      );
     }
 
     const created = await prisma.request.create({
@@ -81,6 +113,7 @@ export async function POST(req: NextRequest) {
   }
 }
 
+// GET /api/request
 export async function GET(req: NextRequest) {
   const auth = await Authenticate(req);
   if (auth.error) return auth.error;

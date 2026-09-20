@@ -9,67 +9,66 @@ import {
   parseId,
   validationError,
 } from "@/lib/http";
-import {
-  actionCodeSchema,
-  assertStructureEditable,
-  assertValidTarget,
-  serializeAction,
-} from "@/lib/workflow-admin";
+import { assertStructureEditable } from "@/lib/workflow-admin";
 
-type Ctx = { params: Promise<{ stageId: string }> };
+type Ctx = { params: Promise<{ id: string }> };
 
-const createSchema = z.object({
-  code: actionCodeSchema,
-  label: z.string().trim().min(1, "Label wajib diisi").max(100),
-  // Eksplisit dari admin, bukan diturunkan dari toStageId
-  isReject: z.boolean().default(false),
-  // Stage tujuan. WAJIB diisi, termasuk untuk reject (arahkan ke stage final "Rejected")
-  toStageId: z.string().uuid("toStageId wajib diisi dan valid"),
+const createStageSchema = z.object({
+  name: z.string().trim().min(1, "Nama stage wajib diisi").max(100),
+  isFinal: z.boolean().default(false),
+  sequenceOrder: z.number().int().min(1).optional(),
 });
 
-/** POST /api/admin/stages/:stageId/actions — membuat action + transition sekaligus */
+// POST /api/admin/workflow/:id/stage — buat stage baru di workflow
 export async function POST(req: NextRequest, { params }: Ctx) {
   const auth = await Authenticate(req, ["Admin"]);
   if (auth.error) return auth.error;
 
   try {
-    const stageId = parseId((await params).stageId);
+    const workflowId = parseId((await params).id);
 
-    const body = createSchema.safeParse(await req.json().catch(() => null));
+    const body = createStageSchema.safeParse(
+      await req.json().catch(() => null),
+    );
     if (!body.success) return validationError(body.error);
-    const { code, label, isReject, toStageId } = body.data;
+    const { name, isFinal, sequenceOrder } = body.data;
 
-    const stage = await prisma.workflowStage.findUnique({
-      where: { id: stageId },
-      select: { workflowId: true, sequenceOrder: true, isFinal: true },
+    const workflow = await prisma.workflow.findUnique({
+      where: { id: workflowId },
+      select: { id: true },
     });
-    if (!stage) throw new HttpError(404, "Stage tidak ditemukan");
+    if (!workflow) throw new HttpError(404, "Workflow tidak ditemukan");
 
-    await assertStructureEditable(stage.workflowId);
+    await assertStructureEditable(workflowId);
 
-    if (stage.isFinal) {
-      throw new HttpError(422, "Stage final tidak boleh memiliki action");
+    let nextOrder = sequenceOrder;
+    if (nextOrder === undefined) {
+      const last = await prisma.workflowStage.findFirst({
+        where: { workflowId },
+        orderBy: { sequenceOrder: "desc" },
+        select: { sequenceOrder: true },
+      });
+      nextOrder = (last?.sequenceOrder ?? 0) + 1;
     }
-    await assertValidTarget(stage, toStageId);
 
     try {
-      const action = await prisma.workflowAction.create({
-        data: {
-          stageId,
-          code,
-          label,
-          isReject,
-          transitions: { create: { fromStageId: stageId, toStageId } },
+      const stage = await prisma.workflowStage.create({
+        data: { workflowId, name, isFinal, sequenceOrder: nextOrder },
+        select: {
+          id: true,
+          workflowId: true,
+          name: true,
+          sequenceOrder: true,
+          isFinal: true,
         },
-        include: { transitions: { select: { toStageId: true } } },
       });
-      return NextResponse.json(
-        { action: serializeAction(action) },
-        { status: 201 },
-      );
+      return NextResponse.json({ stage }, { status: 201 });
     } catch (e) {
       if (isUniqueViolation(e)) {
-        throw new HttpError(409, "Kode action sudah dipakai di stage ini");
+        throw new HttpError(
+          409,
+          "sequenceOrder sudah dipakai stage lain di workflow ini",
+        );
       }
       throw e;
     }

@@ -9,13 +9,11 @@ function todayJakarta(): string {
     month: "2-digit",
     day: "2-digit",
   })
-    .format(new Date()) // 2026 - 09 - 19
+    .format(new Date())
     .replace(/-/g, "");
 }
 
 // Generate request number diambil dari tanggal hari ini dan nomor urut
-// Jadi REQ-YYYYMMDD-0001.
-// Jika terjadi double request, request yang terkena unique violation akan mengulang proses transaction
 export async function generateRequestNumber(
   tx: Prisma.TransactionClient,
 ): Promise<string> {
@@ -79,4 +77,90 @@ export async function canViewRequest(
   });
 
   return acted > 0;
+}
+
+/* -------------------------------------------------------------------------- */
+/*                     Validasi data request vs field kustom                  */
+/* -------------------------------------------------------------------------- */
+
+export type RequestFieldDef = {
+  key: string;
+  label: string;
+  type: "TEXT" | "TEXTAREA" | "NUMBER" | "DATE" | "SELECT" | "CHECKBOX";
+  required: boolean;
+  options: string[] | null;
+};
+
+export type FieldValidationIssue = { path: string; message: string };
+
+// Validasi `data` yang dikirim user saat membuat/mengedit request, terhadap
+// field kustom yang didefinisikan admin di workflow tersebut.
+export function validateRequestData(
+  fields: RequestFieldDef[],
+  data: Record<string, unknown>,
+): FieldValidationIssue[] {
+  const issues: FieldValidationIssue[] = [];
+
+  for (const field of fields) {
+    const value = data[field.key];
+    const isEmpty =
+      value === undefined ||
+      value === null ||
+      (typeof value === "string" && value.trim() === "");
+
+    if (field.required && isEmpty) {
+      issues.push({ path: field.key, message: `${field.label} wajib diisi` });
+      continue;
+    }
+    if (isEmpty) continue;
+
+    switch (field.type) {
+      case "NUMBER":
+        if (typeof value !== "number" || !Number.isFinite(value)) {
+          issues.push({
+            path: field.key,
+            message: `${field.label} harus berupa angka`,
+          });
+        }
+        break;
+      case "DATE":
+        if (typeof value !== "string" || Number.isNaN(Date.parse(value))) {
+          issues.push({
+            path: field.key,
+            message: `${field.label} harus berupa tanggal yang valid`,
+          });
+        }
+        break;
+      case "SELECT":
+        if (
+          typeof value !== "string" ||
+          !(field.options ?? []).includes(value)
+        ) {
+          issues.push({
+            path: field.key,
+            message: `${field.label} harus salah satu opsi yang tersedia`,
+          });
+        }
+        break;
+      case "CHECKBOX":
+        if (typeof value !== "boolean") {
+          issues.push({
+            path: field.key,
+            message: `${field.label} harus bernilai true/false`,
+          });
+        }
+        break;
+      case "TEXT":
+      case "TEXTAREA":
+        if (typeof value !== "string") {
+          issues.push({
+            path: field.key,
+            message: `${field.label} harus berupa teks`,
+          });
+        }
+        break;
+    }
+  }
+
+  return issues;
 }

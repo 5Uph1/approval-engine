@@ -16,7 +16,7 @@ const patchSchema = z
   })
   .refine((v) => Object.keys(v).length > 0, "Minimal satu field harus diisi");
 
-/** GET /api/admin/workflows/:id — detail lengkap (stage, action, transition, approver) */
+// GET /api/admin/workflows/:id — detail lengkap (stage, action, transition, approver, field)
 export async function GET(req: NextRequest, { params }: Ctx) {
   const auth = await Authenticate(req, ["Admin"]);
   if (auth.error) return auth.error;
@@ -45,11 +45,11 @@ export async function GET(req: NextRequest, { params }: Ctx) {
               },
             },
           },
+          fields: {
+            orderBy: { sequenceOrder: "asc" },
+          },
         },
       }),
-      // Pakai fungsi yang sama persis dengan yang dipakai assertStructureEditable
-      // & route approver, supaya angka ini selalu konsisten dengan error 409
-      // yang muncul saat user mencoba mengubah struktur.
       countInFlight(id),
     ]);
 
@@ -83,6 +83,15 @@ export async function GET(req: NextRequest, { params }: Ctx) {
             user: ap.user,
           })),
         })),
+        fields: workflow.fields.map((f) => ({
+          id: f.id,
+          key: f.key,
+          label: f.label,
+          type: f.type,
+          required: f.isRequired,
+          options: Array.isArray(f.options) ? (f.options as string[]) : null,
+          order: f.sequenceOrder,
+        })),
       },
     });
   } catch (e) {
@@ -90,7 +99,7 @@ export async function GET(req: NextRequest, { params }: Ctx) {
   }
 }
 
-/** PATCH /api/admin/workflows/:id — ubah nama/deskripsi, aktifkan/nonaktifkan */
+// PATCH /api/admin/workflows/:id — ubah nama/deskripsi, aktifkan/nonaktifkan
 export async function PATCH(req: NextRequest, { params }: Ctx) {
   const auth = await Authenticate(req, ["Admin"]);
   if (auth.error) return auth.error;
@@ -108,16 +117,13 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
     });
     if (!existing) throw new HttpError(404, "Workflow tidak ditemukan");
 
-    // Workflow hanya boleh aktif kalau strukturnya valid
     if (isActive === true) {
       const issues = await validateWorkflow(id);
       if (issues.length > 0) {
         throw new HttpError(
           422,
           "Workflow belum valid, tidak bisa diaktifkan",
-          {
-            issues,
-          },
+          { issues },
         );
       }
     }
@@ -140,11 +146,7 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
   }
 }
 
-/**
- * DELETE /api/admin/workflows/:id
- * - belum pernah punya request  -> dihapus permanen beserta isinya
- * - sudah punya request         -> hanya dinonaktifkan (histori tetap utuh)
- */
+// DELETE /api/admin/workflows/:id
 export async function DELETE(req: NextRequest, { params }: Ctx) {
   const auth = await Authenticate(req, ["Admin"]);
   if (auth.error) return auth.error;
@@ -181,6 +183,7 @@ export async function DELETE(req: NextRequest, { params }: Ctx) {
       prisma.workflowStageApprover.deleteMany({
         where: { stage: { workflowId: id } },
       }),
+      prisma.workflowField.deleteMany({ where: { workflowId: id } }),
       prisma.workflowStage.deleteMany({ where: { workflowId: id } }),
       prisma.workflow.delete({ where: { id } }),
     ]);

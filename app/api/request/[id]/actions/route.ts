@@ -13,6 +13,7 @@ const actionSchema = z.object({
   version: z.number().int().min(1).optional(),
 });
 
+// POST /api/request/:id/actions
 export async function POST(req: NextRequest, { params }: Ctx) {
   const auth = await Authenticate(req);
   if (auth.error) return auth.error;
@@ -68,8 +69,6 @@ export async function POST(req: NextRequest, { params }: Ctx) {
         include: { toStage: { select: { id: true, isFinal: true } } },
       });
 
-      // toStage WAJIB ada — reject pun harus menunjuk ke stage final "Rejected",
-      // bukan null. Status ditentukan dari action.isReject, bukan dari toStageId.
       if (!transition || !transition.toStage) {
         throw new HttpError(
           422,

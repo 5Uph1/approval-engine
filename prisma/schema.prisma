@@ -21,6 +21,15 @@ enum RequestStatus {
   Completed
 }
 
+enum FieldType {
+  TEXT
+  TEXTAREA
+  NUMBER
+  DATE
+  SELECT
+  CHECKBOX
+}
+
 // User
 model User {
   id           String   @id @default(uuid()) @db.Uuid
@@ -77,8 +86,27 @@ model Workflow {
 
   stages   WorkflowStage[]
   requests Request[]
+  fields   WorkflowField[]
 
   @@map("workflows")
+}
+
+model WorkflowField {
+  id            String    @id @default(uuid()) @db.Uuid
+  workflowId    String    @map("workflow_id") @db.Uuid
+  key           String
+  label         String
+  type          FieldType
+  isRequired    Boolean   @default(false) @map("is_required")
+  options       Json?     @db.JsonB
+  sequenceOrder Int       @default(0) @map("sequence_order")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  workflow Workflow @relation(fields: [workflowId], references: [id])
+
+  @@unique([workflowId, key])
+  @@map("workflow_fields")
 }
 
 model WorkflowStage {

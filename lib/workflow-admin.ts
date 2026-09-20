@@ -16,6 +16,36 @@ export const actionCodeSchema = z
     "Kode hanya boleh huruf kapital, angka, dan underscore",
   );
 
+// Key field kustom: huruf kecil, angka, underscore. Dipakai sebagai key di JSON `data`.
+// "title" dan "notes" dipakai sistem (judul & catatan bawaan), jadi tidak boleh dipakai admin.
+export const fieldKeySchema = z
+  .string()
+  .trim()
+  .min(1, "Key wajib diisi")
+  .max(50)
+  .regex(
+    /^[a-z][a-z0-9_]*$/,
+    "Key hanya boleh huruf kecil, angka, underscore, dan diawali huruf",
+  )
+  .refine((v) => !["title", "notes"].includes(v), {
+    message: '"title" dan "notes" sudah dipakai sistem, gunakan key lain',
+  });
+
+export const fieldTypeSchema = z.enum([
+  "TEXT",
+  "TEXTAREA",
+  "NUMBER",
+  "DATE",
+  "SELECT",
+  "CHECKBOX",
+]);
+
+export const fieldOptionsSchema = z
+  .array(z.string().trim().min(1))
+  .min(1, "Minimal 1 opsi")
+  .max(50)
+  .optional();
+
 // Jumlah request yang masih berjalan (belum selesai) di workflow ini.
 export async function countInFlight(
   workflowId: string,
@@ -39,7 +69,7 @@ export async function assertStructureEditable(
   if (workflow.isActive) {
     throw new HttpError(
       409,
-      "Nonaktifkan workflow terlebih dahulu sebelum mengubah struktur (stage, action, transition)",
+      "Nonaktifkan workflow terlebih dahulu sebelum mengubah struktur (stage, action, transition, field)",
     );
   }
 
@@ -87,5 +117,28 @@ export function serializeAction(a: {
     code: a.code,
     label: a.label,
     toStageId: a.transitions[0]?.toStageId ?? null,
+  };
+}
+
+// Bentuk respons field: options dinormalisasi jadi string[] | null.
+export function serializeField(f: {
+  id: string;
+  workflowId: string;
+  key: string;
+  label: string;
+  type: string;
+  isRequired: boolean;
+  options: unknown;
+  sequenceOrder: number;
+}) {
+  return {
+    id: f.id,
+    workflowId: f.workflowId,
+    key: f.key,
+    label: f.label,
+    type: f.type,
+    required: f.isRequired,
+    options: Array.isArray(f.options) ? (f.options as string[]) : null,
+    order: f.sequenceOrder,
   };
 }

@@ -17,6 +17,7 @@ import {
   User,
   ShieldCheck,
   Lock,
+  ListChecks,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -31,6 +32,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -76,6 +78,24 @@ interface StageItem {
   approvers?: Approver[];
 }
 
+type FieldType =
+  | "TEXT"
+  | "TEXTAREA"
+  | "NUMBER"
+  | "DATE"
+  | "SELECT"
+  | "CHECKBOX";
+
+interface FieldItem {
+  id: string;
+  key: string;
+  label: string;
+  type: FieldType;
+  required: boolean;
+  options: string[] | null;
+  order: number;
+}
+
 interface WorkflowData {
   id: string;
   name: string;
@@ -83,12 +103,51 @@ interface WorkflowData {
   isActive: boolean;
   activeRequestCount: number;
   stages: StageItem[];
+  fields?: FieldItem[];
 }
 
 interface OptionItem {
   id: string;
   name: string;
   email?: string;
+}
+
+const FIELD_TYPE_LABEL: Record<FieldType, string> = {
+  TEXT: "Teks singkat",
+  TEXTAREA: "Teks panjang",
+  NUMBER: "Angka",
+  DATE: "Tanggal",
+  SELECT: "Pilihan (dropdown)",
+  CHECKBOX: "Checkbox",
+};
+
+/* -------------------------------------------------------------------------- */
+/*                                  Helpers                                   */
+/* -------------------------------------------------------------------------- */
+
+// Mengubah label menjadi key snake_case: "Nominal Pengajuan" -> "nominal_pengajuan"
+function toFieldKey(label: string): string {
+  const base = label
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+
+  if (!base) return "";
+  return /^[a-z]/.test(base) ? base : `f_${base}`;
+}
+
+// Satu opsi per baris, tanpa duplikat
+function parseOptions(text: string): string[] {
+  return Array.from(
+    new Set(
+      text
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean),
+    ),
+  );
 }
 
 /* -------------------------------------------------------------------------- */
@@ -98,6 +157,7 @@ interface OptionItem {
 function extractError(result: any, fallback: string): string {
   if (!result) return fallback;
 
+  // 422: masalah konsistensi workflow -> { issues: [{ code, message }] }
   const issues = result.issues ?? result.error?.issues;
   if (Array.isArray(issues) && issues.length > 0) {
     return issues
@@ -105,6 +165,14 @@ function extractError(result: any, fallback: string): string {
         const path = Array.isArray(i.path) ? i.path.join(".") : i.path;
         return path ? `${path}: ${i.message}` : i.message;
       })
+      .join(" | ");
+  }
+
+  // 400: validasi input -> { errors: [{ path, message }] }
+  const errors = result.errors;
+  if (Array.isArray(errors) && errors.length > 0) {
+    return errors
+      .map((e: any) => (e.path ? `${e.path}: ${e.message}` : e.message))
       .join(" | ");
   }
 
@@ -134,6 +202,7 @@ export default function DetailWorkflowPage({
   const [isStageModalOpen, setIsStageModalOpen] = useState(false);
   const [isActionModalOpen, setIsActionModalOpen] = useState(false);
   const [isApproverModalOpen, setIsApproverModalOpen] = useState(false);
+  const [isFieldModalOpen, setIsFieldModalOpen] = useState(false);
 
   const [editingStage, setEditingStage] = useState<StageItem | null>(null);
   const [stageName, setStageName] = useState("");
@@ -157,23 +226,34 @@ export default function DetailWorkflowPage({
   const [usersList, setUsersList] = useState<OptionItem[]>([]);
   const [submittingApprover, setSubmittingApprover] = useState(false);
 
-  const currentStage = workflow?.stages.find((s) => s.id === selectedStageId);
+  // Field form request
+  const [editingField, setEditingField] = useState<FieldItem | null>(null);
+  const [fieldLabel, setFieldLabel] = useState("");
+  const [fieldKey, setFieldKey] = useState("");
+  const [fieldKeyTouched, setFieldKeyTouched] = useState(false);
+  const [fieldType, setFieldType] = useState<FieldType>("TEXT");
+  const [fieldRequired, setFieldRequired] = useState(false);
+  const [fieldOptionsText, setFieldOptionsText] = useState("");
+  const [fieldOrder, setFieldOrder] = useState<number | undefined>(undefined);
+  const [submittingField, setSubmittingField] = useState(false);
 
-  // Dua alasan struktur (stage/action) terkunci:
+  const currentStage = workflow?.stages.find((s) => s.id === selectedStageId);
+  const sortedFields = [...(workflow?.fields ?? [])].sort(
+    (a, b) => a.order - b.order,
+  );
+
+  // Dua alasan struktur (stage, action, field) terkunci:
   // 1. workflow sedang aktif (isActive), atau
   // 2. masih ada request yang sedang berjalan (activeRequestCount > 0)
-  // Server (assertStructureEditable / countInFlight) memakai kombinasi dua
-  // kondisi ini juga, jadi UI HARUS pakai keduanya juga — sebelumnya di sini
-  // hanya `isActive` yang dipakai, sehingga tombol tetap aktif walau server
-  // pasti menolak (409) karena masih ada request berjalan.
+  // Server (assertStructureEditable) memakai kombinasi yang sama.
   const workflowIsActive = workflow?.isActive ?? false;
   const hasActiveRequests = (workflow?.activeRequestCount ?? 0) > 0;
   const structureLocked = workflowIsActive || hasActiveRequests;
 
   const lockedReason = workflowIsActive
-    ? "Workflow sedang aktif. Nonaktifkan dan simpan dulu sebelum mengubah struktur."
+    ? "Workflow sedang aktif. Nonaktifkan dan simpan dulu sebelum mengubah struktur dan field."
     : hasActiveRequests
-      ? `Masih ada ${workflow?.activeRequestCount} request yang sedang berjalan pada workflow ini. Struktur tidak bisa diubah sampai request tersebut selesai.`
+      ? `Masih ada ${workflow?.activeRequestCount} request yang sedang berjalan pada workflow ini. Struktur dan field tidak bisa diubah sampai request tersebut selesai.`
       : "";
 
   const targetStageOptions = (workflow?.stages ?? [])
@@ -263,6 +343,8 @@ export default function DetailWorkflowPage({
       setSavingWorkflow(false);
     }
   };
+
+  /* ------------------------------- STAGE --------------------------------- */
 
   const handleOpenStageModal = (stage?: StageItem) => {
     if (structureLocked) {
@@ -363,6 +445,8 @@ export default function DetailWorkflowPage({
     }
   };
 
+  /* ------------------------------- ACTION -------------------------------- */
+
   const handleOpenActionModal = (stageId: string, action?: ActionItem) => {
     if (structureLocked) {
       toast.error(lockedReason);
@@ -456,12 +540,11 @@ export default function DetailWorkflowPage({
     }
   };
 
-  // Menambah approver diizinkan kapan saja oleh backend (route approver POST
-  // tidak memanggil assertStructureEditable), jadi tidak ikut di-disable
-  // oleh structureLocked. Yang dibatasi hanya hapus approver TERAKHIR di
-  // stage non-final saat workflow aktif / ada request berjalan — itu sudah
-  // divalidasi & diberi pesan oleh server sendiri, cukup diteruskan lewat
-  // extractError.
+  /* ------------------------------ APPROVER ------------------------------- */
+
+  // Menambah approver diizinkan kapan saja oleh backend, jadi tidak ikut
+  // di-disable oleh structureLocked. Penghapusan approver terakhir divalidasi
+  // server dan pesannya diteruskan lewat extractError.
   const handleOpenApproverModal = (stageId: string) => {
     setSelectedStageId(stageId);
     setApproverType("ROLE");
@@ -524,6 +607,139 @@ export default function DetailWorkflowPage({
     }
   };
 
+  /* -------------------------------- FIELD -------------------------------- */
+
+  const handleOpenFieldModal = (field?: FieldItem) => {
+    if (structureLocked) {
+      toast.error(lockedReason);
+      return;
+    }
+
+    if (field) {
+      setEditingField(field);
+      setFieldLabel(field.label);
+      setFieldKey(field.key);
+      setFieldKeyTouched(true);
+      setFieldType(field.type);
+      setFieldRequired(field.required);
+      setFieldOptionsText((field.options ?? []).join("\n"));
+      setFieldOrder(field.order);
+    } else {
+      setEditingField(null);
+      setFieldLabel("");
+      setFieldKey("");
+      setFieldKeyTouched(false);
+      setFieldType("TEXT");
+      setFieldRequired(false);
+      setFieldOptionsText("");
+      setFieldOrder(undefined);
+    }
+    setIsFieldModalOpen(true);
+  };
+
+  // Saat membuat field baru, key mengikuti label sampai key diubah manual
+  const handleFieldLabelChange = (value: string) => {
+    setFieldLabel(value);
+    if (!editingField && !fieldKeyTouched) {
+      setFieldKey(toFieldKey(value));
+    }
+  };
+
+  const handleSaveField = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    const isEdit = !!editingField;
+    const label = fieldLabel.trim();
+    const key = fieldKey.trim();
+    const options = parseOptions(fieldOptionsText);
+
+    if (!label) {
+      toast.error("Label field wajib diisi");
+      return;
+    }
+    if (!isEdit) {
+      if (!key) {
+        toast.error("Key field wajib diisi");
+        return;
+      }
+      if (key === "title") {
+        toast.error("Key 'title' sudah dipakai oleh judul bawaan");
+        return;
+      }
+    }
+    if (fieldType === "SELECT" && options.length === 0) {
+      toast.error("Field pilihan wajib punya minimal 1 opsi");
+      return;
+    }
+
+    const payload: Record<string, unknown> = {
+      label,
+      type: fieldType,
+      required: fieldRequired,
+    };
+    if (!isEdit) payload.key = key; // key tidak diubah setelah dibuat
+    if (fieldType === "SELECT") payload.options = options;
+    if (
+      fieldOrder !== undefined &&
+      Number.isInteger(fieldOrder) &&
+      fieldOrder >= 0
+    ) {
+      payload.order = fieldOrder;
+    }
+
+    const url = isEdit
+      ? `/api/admin/field/${editingField!.id}`
+      : `/api/admin/workflow/${id}/field`;
+    const method = isEdit ? "PATCH" : "POST";
+
+    setSubmittingField(true);
+    try {
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const result = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(extractError(result, "Gagal menyimpan field"));
+      }
+
+      toast.success(`Field berhasil ${isEdit ? "diperbarui" : "ditambahkan"}`);
+      setIsFieldModalOpen(false);
+      await fetchWorkflowDetail();
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setSubmittingField(false);
+    }
+  };
+
+  const handleDeleteField = async (fieldId: string) => {
+    if (structureLocked) {
+      toast.error(lockedReason);
+      return;
+    }
+    if (!confirm("Hapus field ini dari form request?")) return;
+
+    try {
+      const res = await fetch(`/api/admin/field/${fieldId}`, {
+        method: "DELETE",
+      });
+      const result = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(extractError(result, "Gagal menghapus field"));
+      }
+
+      toast.success("Field berhasil dihapus");
+      await fetchWorkflowDetail();
+    } catch (err: any) {
+      toast.error(err.message);
+    }
+  };
+
+  /* -------------------------------- RENDER -------------------------------- */
+
   if (loading) {
     return (
       <div className="flex h-96 items-center justify-center gap-2 text-muted-foreground">
@@ -547,7 +763,8 @@ export default function DetailWorkflowPage({
               Kelola Workflow
             </h1>
             <p className="text-sm text-muted-foreground">
-              Konfigurasi detail workflow, stages, actions, dan approvers.
+              Konfigurasi detail workflow, field form, stages, actions, dan
+              approvers.
             </p>
           </div>
         </div>
@@ -625,6 +842,129 @@ export default function DetailWorkflowPage({
           </CardContent>
         </Card>
 
+        {/* Penjelasan penguncian: berlaku untuk field, stage, dan action */}
+        {workflowIsActive && (
+          <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+            <Lock className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>
+              Workflow sedang <strong>aktif</strong>, sehingga field form,
+              stage, dan action terkunci. Nonaktifkan status di atas lalu klik{" "}
+              <em>Simpan Perubahan</em> untuk mengubahnya. Approver tetap bisa
+              ditambahkan.
+            </span>
+          </div>
+        )}
+
+        {hasActiveRequests && (
+          <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-900 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>
+              Ada <strong>{workflow?.activeRequestCount}</strong> request yang
+              masih berjalan pada workflow ini. Field form, stage, action, dan
+              penghapusan approver terakhir tidak bisa diubah sampai seluruh
+              request tersebut selesai diproses.
+            </span>
+          </div>
+        )}
+
+        {/* SECTION: Field form request */}
+        <Card className="shadow-sm">
+          <CardHeader className="flex flex-row items-center justify-between pb-4">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <ListChecks className="h-5 w-5 text-blue-600" />
+                Field Form Request
+              </CardTitle>
+              <CardDescription>
+                Isian tambahan yang harus diisi pemohon saat membuat request.
+                Judul pengajuan selalu ada secara bawaan.
+              </CardDescription>
+            </div>
+            <Button
+              onClick={() => handleOpenFieldModal()}
+              disabled={structureLocked}
+              className="gap-2"
+            >
+              <Plus className="h-4 w-4" />
+              <span>Tambah Field</span>
+            </Button>
+          </CardHeader>
+
+          <CardContent>
+            {sortedFields.length === 0 ? (
+              <div className="flex flex-col items-center justify-center rounded-lg border border-dashed p-8 text-center">
+                <p className="text-sm text-muted-foreground">
+                  Belum ada field tambahan. Pemohon hanya akan mengisi judul
+                  pengajuan.
+                </p>
+                <Button
+                  variant="link"
+                  onClick={() => handleOpenFieldModal()}
+                  disabled={structureLocked}
+                  className="mt-2"
+                >
+                  + Tambah Field Pertama
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {sortedFields.map((f) => (
+                  <div
+                    key={f.id}
+                    className="flex items-center justify-between gap-3 rounded-md border bg-card p-3"
+                  >
+                    <div className="min-w-0 space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-sm font-semibold">{f.label}</span>
+                        <span className="text-xs text-muted-foreground">
+                          ({f.key})
+                        </span>
+                        <Badge variant="outline" className="text-[10px]">
+                          {FIELD_TYPE_LABEL[f.type]}
+                        </Badge>
+                        {f.required && (
+                          <Badge variant="secondary" className="text-[10px]">
+                            Wajib
+                          </Badge>
+                        )}
+                      </div>
+                      {f.type === "SELECT" &&
+                        f.options &&
+                        f.options.length > 0 && (
+                          <p className="truncate text-xs text-muted-foreground">
+                            Opsi: {f.options.join(", ")}
+                          </p>
+                        )}
+                    </div>
+
+                    <div className="flex shrink-0 items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-blue-600 hover:bg-blue-50"
+                        disabled={structureLocked}
+                        onClick={() => handleOpenFieldModal(f)}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-red-600 hover:bg-red-50"
+                        disabled={structureLocked}
+                        onClick={() => handleDeleteField(f.id)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* SECTION: Stages */}
         <Card className="shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between pb-4">
             <div>
@@ -647,30 +987,6 @@ export default function DetailWorkflowPage({
           </CardHeader>
 
           <CardContent>
-            {workflowIsActive && (
-              <div className="mb-4 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
-                <Lock className="mt-0.5 h-4 w-4 shrink-0" />
-                <span>
-                  Workflow sedang <strong>aktif</strong>, sehingga strukturnya
-                  terkunci. Nonaktifkan status di atas lalu klik{" "}
-                  <em>Simpan Perubahan</em> untuk dapat menambah atau mengubah
-                  stage, action, dan approver.
-                </span>
-              </div>
-            )}
-
-            {hasActiveRequests && (
-              <div className="mb-4 flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-900 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200">
-                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                <span>
-                  Ada <strong>{workflow?.activeRequestCount}</strong> request
-                  yang masih berjalan pada workflow ini. Struktur (stage,
-                  action, dan penghapusan approver terakhir) tidak bisa diubah
-                  sampai seluruh request tersebut selesai diproses.
-                </span>
-              </div>
-            )}
-
             {!workflow?.stages || workflow.stages.length === 0 ? (
               <div className="flex flex-col items-center justify-center rounded-lg border border-dashed p-8 text-center">
                 <p className="text-sm text-muted-foreground">
@@ -911,6 +1227,139 @@ export default function DetailWorkflowPage({
         </Card>
       </div>
 
+      {/* DIALOG: FIELD */}
+      <Dialog open={isFieldModalOpen} onOpenChange={setIsFieldModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {editingField ? "Edit Field" : "Tambah Field Baru"}
+            </DialogTitle>
+            <DialogDescription>
+              Field ini akan muncul di form pembuatan request untuk workflow
+              ini.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleSaveField} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="field-label">Label *</Label>
+              <Input
+                id="field-label"
+                placeholder="Contoh: Nominal pengajuan"
+                value={fieldLabel}
+                onChange={(e) => handleFieldLabelChange(e.target.value)}
+                required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="field-key">Key *</Label>
+              <Input
+                id="field-key"
+                placeholder="Contoh: nominal_pengajuan"
+                value={fieldKey}
+                onChange={(e) => {
+                  setFieldKey(
+                    e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "_"),
+                  );
+                  setFieldKeyTouched(true);
+                }}
+                disabled={!!editingField}
+                required
+              />
+              <p className="text-xs text-muted-foreground">
+                {editingField
+                  ? "Key tidak bisa diubah agar data request lama tetap terbaca."
+                  : "Nama internal untuk menyimpan isian. Huruf kecil, angka, dan underscore."}
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Tipe isian</Label>
+              <Select
+                value={fieldType}
+                onValueChange={(val) => {
+                  if (val) setFieldType(val as FieldType);
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue>{FIELD_TYPE_LABEL[fieldType]}</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {(Object.keys(FIELD_TYPE_LABEL) as FieldType[]).map((t) => (
+                    <SelectItem key={t} value={t}>
+                      {FIELD_TYPE_LABEL[t]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {fieldType === "SELECT" && (
+              <div className="space-y-2">
+                <Label htmlFor="field-options">Opsi pilihan *</Label>
+                <Textarea
+                  id="field-options"
+                  rows={4}
+                  placeholder={
+                    "Satu opsi per baris, contoh:\nTransportasi\nAkomodasi\nKonsumsi"
+                  }
+                  value={fieldOptionsText}
+                  onChange={(e) => setFieldOptionsText(e.target.value)}
+                />
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Label htmlFor="field-order">Urutan tampil</Label>
+              <Input
+                id="field-order"
+                type="number"
+                min={0}
+                step={1}
+                placeholder="Kosongkan untuk posisi paling akhir"
+                value={fieldOrder ?? ""}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  setFieldOrder(raw === "" ? undefined : Number(raw));
+                }}
+              />
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="field-required"
+                checked={fieldRequired}
+                onCheckedChange={(checked) => setFieldRequired(!!checked)}
+              />
+              <Label
+                htmlFor="field-required"
+                className="cursor-pointer text-sm font-normal"
+              >
+                Field ini <strong>wajib diisi</strong>
+              </Label>
+            </div>
+
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setIsFieldModalOpen(false)}
+              >
+                Batal
+              </Button>
+              <Button type="submit" disabled={submittingField}>
+                {submittingField && (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                )}
+                Simpan Field
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* DIALOG: STAGE */}
       <Dialog open={isStageModalOpen} onOpenChange={setIsStageModalOpen}>
         <DialogContent>
           <DialogHeader>
@@ -987,6 +1436,7 @@ export default function DetailWorkflowPage({
         </DialogContent>
       </Dialog>
 
+      {/* DIALOG: ACTION */}
       <Dialog open={isActionModalOpen} onOpenChange={setIsActionModalOpen}>
         <DialogContent>
           <DialogHeader>
@@ -1092,6 +1542,7 @@ export default function DetailWorkflowPage({
         </DialogContent>
       </Dialog>
 
+      {/* DIALOG: APPROVER */}
       <Dialog open={isApproverModalOpen} onOpenChange={setIsApproverModalOpen}>
         <DialogContent>
           <DialogHeader>

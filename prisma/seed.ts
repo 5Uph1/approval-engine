@@ -1,4 +1,4 @@
-import { ApproverType, PrismaClient } from "@prisma/client";
+import { ApproverType, FieldType, Prisma, PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
@@ -58,11 +58,81 @@ async function seed() {
     });
   }
 
+  // Field form request (isian tambahan yang dilihat pemohon saat membuat request).
+  // Judul pengajuan sudah bawaan sistem, jadi tidak perlu didefinisikan di sini.
+  // Satu field per tipe supaya form dinamis mudah didemokan.
+  const fieldDefs: {
+    key: string;
+    label: string;
+    type: FieldType;
+    required: boolean;
+    options?: string[];
+  }[] = [
+    {
+      key: "nominal",
+      label: "Nominal pengajuan (Rp)",
+      type: FieldType.NUMBER,
+      required: true,
+    },
+    {
+      key: "kategori",
+      label: "Kategori",
+      type: FieldType.SELECT,
+      required: true,
+      options: ["Peralatan kantor", "Perangkat IT", "Konsumsi", "Lainnya"],
+    },
+    {
+      key: "vendor",
+      label: "Vendor / toko",
+      type: FieldType.TEXT,
+      required: false,
+    },
+    {
+      key: "tanggal_dibutuhkan",
+      label: "Tanggal dibutuhkan",
+      type: FieldType.DATE,
+      required: false,
+    },
+    {
+      key: "mendesak",
+      label: "Pengajuan mendesak",
+      type: FieldType.CHECKBOX,
+      required: false,
+    },
+    {
+      // Key "notes" ditampilkan sebagai keterangan di halaman detail request
+      key: "notes",
+      label: "Catatan / detail",
+      type: FieldType.TEXTAREA,
+      required: false,
+    },
+  ];
+
+  for (let i = 0; i < fieldDefs.length; i++) {
+    const f = fieldDefs[i];
+    const fieldData = {
+      label: f.label,
+      type: f.type,
+      isRequired: f.required,
+      // Kolom Json nullable: pakai Prisma.DbNull, bukan null biasa
+      options: f.options ?? Prisma.DbNull,
+      sequenceOrder: i,
+    };
+
+    await prisma.workflowField.upsert({
+      where: { workflowId_key: { workflowId: workflow.id, key: f.key } },
+      update: fieldData,
+      create: { workflowId: workflow.id, key: f.key, ...fieldData },
+    });
+  }
+
   // Stages
+  // Ada dua stage final: "Approved" (jalur setuju) dan "Rejected" (jalur tolak).
   const stageDefs = [
     { seq: 1, name: "Review Manager", isFinal: false },
     { seq: 2, name: "Review Finance", isFinal: false },
-    { seq: 3, name: "Selesai", isFinal: true },
+    { seq: 3, name: "Approved", isFinal: true },
+    { seq: 4, name: "Rejected", isFinal: true },
   ];
 
   const stageIds: Record<number, string> = {};
@@ -86,41 +156,60 @@ async function seed() {
   }
 
   // Actions + Transitions
+  // - Kode action unik per stage (bukan global), jadi upsert memakai stageId_code.
+  // - isReject = true menandai penolakan; target-nya stage final "Rejected".
   const actionDefs = [
     {
       code: "MANAGER_APPROVE",
       label: "Setujui (Manager)",
       fromSeq: 1,
       toSeq: 2,
+      isReject: false,
+    },
+    {
+      code: "MANAGER_REJECT",
+      label: "Tolak (Manager)",
+      fromSeq: 1,
+      toSeq: 4,
+      isReject: true,
     },
     {
       code: "FINANCE_APPROVE",
       label: "Setujui (Finance)",
       fromSeq: 2,
       toSeq: 3,
+      isReject: false,
+    },
+    {
+      code: "FINANCE_REJECT",
+      label: "Tolak (Finance)",
+      fromSeq: 2,
+      toSeq: 4,
+      isReject: true,
     },
   ];
 
   for (const a of actionDefs) {
+    const fromStageId = stageIds[a.fromSeq];
+    const toStageId = stageIds[a.toSeq];
+
     const action = await prisma.workflowAction.upsert({
-      where: { code: a.code },
-      update: { label: a.label },
-      create: { code: a.code, label: a.label, stageId: stageIds[a.fromSeq] },
+      where: { stageId_code: { stageId: fromStageId, code: a.code } },
+      update: { label: a.label, isReject: a.isReject },
+      create: {
+        stageId: fromStageId,
+        code: a.code,
+        label: a.label,
+        isReject: a.isReject,
+      },
     });
 
     await prisma.workflowTransition.upsert({
       where: {
-        fromStageId_actionId: {
-          fromStageId: stageIds[a.fromSeq],
-          actionId: action.id,
-        },
+        fromStageId_actionId: { fromStageId, actionId: action.id },
       },
-      update: { toStageId: stageIds[a.toSeq] },
-      create: {
-        fromStageId: stageIds[a.fromSeq],
-        actionId: action.id,
-        toStageId: stageIds[a.toSeq],
-      },
+      update: { toStageId },
+      create: { fromStageId, actionId: action.id, toStageId },
     });
   }
 

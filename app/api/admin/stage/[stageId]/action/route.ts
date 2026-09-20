@@ -22,11 +22,10 @@ const createSchema = z.object({
   code: actionCodeSchema,
   label: z.string().trim().min(1, "Label wajib diisi").max(100),
   isReject: z.boolean().default(false),
-  // WAJIB diisi — reject pun harus menunjuk stage final "Rejected", bukan null
   toStageId: z.string().uuid("toStageId wajib diisi dan valid"),
 });
 
-/** POST /api/admin/stages/:stageId/actions — membuat action + transition sekaligus */
+// POST /api/admin/stages/:stageId/actions — membuat action + transition
 export async function POST(req: NextRequest, { params }: Ctx) {
   const auth = await Authenticate(req, ["Admin"]);
   if (auth.error) return auth.error;

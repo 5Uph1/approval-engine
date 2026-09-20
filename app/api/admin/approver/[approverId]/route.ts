@@ -6,13 +6,7 @@ import { countInFlight } from "@/lib/workflow-admin";
 
 type Ctx = { params: Promise<{ approverId: string }> };
 
-/**
- * DELETE /api/admin/approvers/:approverId
- *
- * Approver terakhir di stage non-final tidak boleh dihapus selama workflow
- * masih aktif atau masih ada request berjalan, karena request bisa macet
- * tanpa ada yang berhak memprosesnya.
- */
+// DELETE /api/admin/approvers/:approverId
 export async function DELETE(req: NextRequest, { params }: Ctx) {
   const auth = await Authenticate(req, ["Admin"]);
   if (auth.error) return auth.error;

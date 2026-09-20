@@ -12,6 +12,7 @@ const patchSchema = z.object({
   data: z.record(z.string(), z.unknown()),
 });
 
+// GET /api/request/:id
 export async function GET(req: NextRequest, { params }: Ctx) {
   const auth = await Authenticate(req);
   if (auth.error) return auth.error;
@@ -78,6 +79,7 @@ export async function GET(req: NextRequest, { params }: Ctx) {
   }
 }
 
+// PATCH /api/request/:id
 export async function PATCH(req: NextRequest, { params }: Ctx) {
   const auth = await Authenticate(req);
   if (auth.error) return auth.error;
