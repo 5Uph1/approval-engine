@@ -71,7 +71,7 @@ PostgreSQL bisa dijalankan secara lokal atau menggunakan Docker.
 Clone repository kemudian install dependency:
 
 ```bash
-git clone <url-repository>
+git clone https://github.com/5Uph1/approval-engine
 cd approval-engine
 npm install
 ```
@@ -82,7 +82,7 @@ Buat file `.env` di root project:
 
 ```env
 DATABASE_URL="postgresql://postgres:postgres@localhost:5432/approval_engine?schema=public"
-JWT_SECRET="ganti-dengan-string-acak-minimal-32-karakter"
+JWT_SECRET="superrahasia" <!-- ganti-dengan-string-acak-minimal-10-karakter -->
 ```
 
 ### Environment Variables
@@ -90,7 +90,7 @@ JWT_SECRET="ganti-dengan-string-acak-minimal-32-karakter"
 | Variable       | Keterangan                                                                                 |
 | -------------- | ------------------------------------------------------------------------------------------ |
 | `DATABASE_URL` | Connection string PostgreSQL. Sesuaikan username, password, host, port, dan nama database. |
-| `JWT_SECRET`   | Secret untuk menandatangani JWT. Minimal 32 karakter.                                      |
+| `JWT_SECRET`   | Secret untuk menandatangani JWT. Minimal 10 karakter.                                      |
 
 Untuk membuat secret secara acak:
 
@@ -103,12 +103,6 @@ Jangan commit `.env` ke repository.
 ## Database Setup
 
 ### 1. Buat database
-
-Jika menggunakan Docker, bisa menjalankan PostgreSQL dengan:
-
-```bash
-docker run --name approval-db   -e POSTGRES_PASSWORD=postgres   -e POSTGRES_DB=approval_engine   -p 5432:5432   -d postgres:16
-```
 
 Jika PostgreSQL sudah tersedia secara lokal, cukup buat database bernama `approval_engine`.
 
@@ -149,14 +143,6 @@ Kemudian buka:
 
 http://localhost:3000
 
-### Production
-
-```bash
-npx prisma migrate deploy
-npm run build
-npm start
-```
-
 ## NPM Scripts
 
 | Command         | Fungsi                           |
@@ -180,8 +166,6 @@ Semua akun menggunakan password:
 | Employee | Andi Pratama     | `employee@gmail.com` |
 | Manager  | Helio Warno      | `manager@gmail.com`  |
 | Finance  | Farid Zulkarnain | `finance@gmail.com`  |
-
-Jangan menggunakan password tersebut di environment production.
 
 ## Contoh Workflow
 
@@ -289,10 +273,10 @@ Pendekatan ini digunakan untuk menghindari kondisi ketika dua approver memproses
 Jika muncul:
 
 ```text
-JWT_SECRET wajib diisi dan minimal 32 karakter
+JWT_SECRET wajib diisi dan minimal 10 karakter
 ```
 
-Pastikan `JWT_SECRET` tersedia di `.env` dan memiliki minimal 32 karakter. Setelah mengubah `.env`, restart development server.
+Pastikan `JWT_SECRET` tersedia di `.env` dan memiliki minimal 10 karakter. Setelah mengubah `.env`, restart development server.
 
 ### DATABASE_URL tidak ditemukan
 
